@@ -48,7 +48,8 @@
         const initialDelay = 2000; // 2 seconds before the first URL from the list is loaded
         const fallbackTimeout = 7000; // Fallback timeout for 'live' pages that don't load quickly
 
-        let currentUrlIndex = 0;
+        // currentUrlIndex now ALWAYS points to the page that is ABOUT TO BE DISPLAYED
+        let currentUrlIndex = 0; 
         let rotationTimer;
         let loadTimeout;
         
@@ -61,7 +62,6 @@
         
         /**
          * Loads a URL into the preloader frame, but only if it's a 'status' page.
-         * For 'live' boards, we clear the preloader since they must load on rotation.
          * @param {number} indexToLoad - The index of the URL in urlsToRotate to load next.
          */
         function preloadFrame(indexToLoad) {
@@ -72,30 +72,32 @@
                 preloaderFrame.src = itemToLoad.url;
                 console.log(`Pre-loading URL ${indexToLoad} (${itemToLoad.url}) in the background.`);
             } else {
-                // Clear the preloader if the next item is a live board
+                // Clear the preloader if the next item is a live board (since it loads into the active frame next)
                 preloaderFrame.src = 'about:blank';
             }
         }
         
         /**
-         * Schedules the next display swap and starts pre-loading the page after that.
+         * Schedules the next display swap (performRotation) and starts pre-loading the page *after* that.
          * This function is called immediately after a page becomes visible.
          * @param {number} duration - The amount of time (ms) to display the current page.
          */
         function scheduleNextRotation(duration) {
             clearTimeout(rotationTimer);
             
-            // FIX: Calculate the index of the page that is TWO steps away (the page to preload)
-            const preloadIndex = (currentUrlIndex + 1) % urlsToRotate.length;
+            // 1. Advance the index to the NEXT page to be displayed in the future.
+            currentUrlIndex = (currentUrlIndex + 1) % urlsToRotate.length;
 
-            preloadFrame(preloadIndex); 
+            // 2. Preload the page at the newly advanced index (this is the page that will display next).
+            preloadFrame(currentUrlIndex); 
             
-            // Set the timer for the actual rotation event
+            // 3. Set the timer for the actual rotation event
             rotationTimer = setTimeout(performRotation, duration);
         }
 
         /**
          * Handles the actual swap of frames and subsequent loading/pre-loading.
+         * currentUrlIndex points to the item we are about to display.
          */
         function performRotation() {
             clearTimeout(loadTimeout);
@@ -103,25 +105,37 @@
             const nextItem = urlsToRotate[currentUrlIndex];
             
             if (nextItem.type === 'live') {
-                // --- LIVE BOARD LOGIC (No pre-loading possible) ---
-                console.log(`Loading Live URL: ${nextItem.url} for ${nextItem.duration / 1000}s.`);
+                // --- LIVE BOARD LOGIC (Must load now, no pre-loading possible) ---
+                console.log(`Loading Live URL: ${nextItem.url} for ${nextItem.duration / 1000}s. Index: ${currentUrlIndex}`);
                 
-                // Ensure the current active frame is used for the load
+                // Load into the current active frame
                 activeFrame.src = nextItem.url;
                 
-                // Use onload/timeout for Live boards, then swap the roles back to ensure the preloader is ready for the status pages
-                activeFrame.onload = () => {
-                    activeFrame.classList.add('active'); // Ensure it's visible
-                    activeFrame.onload = null; // Clear handler
+                // --- FIX: Add a guard flag to prevent the race condition ---
+                let rotationInitiated = false; 
+
+                const finalizeRotation = () => {
+                    // If rotation was already initiated by the other event (onload or timeout), exit.
+                    if (rotationInitiated) return; 
+                    rotationInitiated = true;
+                    
+                    clearTimeout(loadTimeout); // Clear the timeout
+                    activeFrame.onload = null; // Clear the onload handler
+
+                    // Ensure the frame is visible
+                    activeFrame.classList.add('active');
+                    
                     scheduleNextRotation(nextItem.duration);
                 };
+                
+                activeFrame.onload = finalizeRotation;
 
                 // Fallback timeout for live boards
                 loadTimeout = setTimeout(() => {
-                    if (!activeFrame.classList.contains('active')) {
+                    // Check the guard flag before calling finalizeRotation
+                    if (!rotationInitiated) {
                         console.warn(`Live board load timeout reached for ${nextItem.url}. Forcing display.`);
-                        activeFrame.classList.add('active');
-                        scheduleNextRotation(nextItem.duration);
+                        finalizeRotation(); 
                     }
                 }, fallbackTimeout);
 
@@ -131,23 +145,19 @@
                 // 1. Perform the swap: Hide the current active, show the pre-loaded 
                 activeFrame.classList.remove('active');
                 preloaderFrame.classList.add('active');
-                console.log(`Instantly displaying pre-loaded Status URL: ${nextItem.url}.`);
+                console.log(`Instantly displaying pre-loaded Status URL: ${nextItem.url}. Index: ${currentUrlIndex}`);
 
                 // 2. Update frame roles for the next cycle
                 const tempFrame = activeFrame;
                 activeFrame = preloaderFrame;
                 preloaderFrame = tempFrame;
                 
-                // 3. Schedule the next rotation (which also starts pre-loading the *next* page)
+                // 3. Schedule the next rotation (which advances the index and pre-loads the *following* page)
                 scheduleNextRotation(nextItem.duration);
             }
-            
-            // Advance the index for the next rotation cycle
-            currentUrlIndex = (currentUrlIndex + 1) % urlsToRotate.length;
         }
 
         // Listen for messages from the iframed pages.
-        // This is only important for the status pages to confirm data is ready in the preloader.
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'page-ready') {
                 // Find the frame that sent the message
@@ -163,7 +173,6 @@
                     if (frameThatSentMessage === preloaderFrame) {
                         console.log(`Preloader frame confirmed ready for swap: ${preloaderFrame.src}`);
                     } else if (frameThatSentMessage === activeFrame) {
-                        // This happens if the 'page-ready' signal from the status board is delayed
                         console.warn(`Ready signal arrived late from active frame: ${activeFrame.src}.`);
                     }
                 }
@@ -174,8 +183,7 @@
          * Initial function to start the rotation process.
          */
         function initRotation() {
-             // Start the very first page load (Index 0 is a Live Board, so it loads into the active frame)
-             currentUrlIndex = 0;
+             // currentUrlIndex is 0. Call performRotation to load the first item.
              performRotation(); 
         }
 
@@ -184,5 +192,6 @@
     </script>
 </body>
 </html>
+
 
 
