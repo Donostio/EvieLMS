@@ -40,8 +40,8 @@
         // Array of URLs to rotate, now including a 'type' to distinguish pre-loadable pages
         const urlsToRotate = [
             { url: "https://www.leddepartureboard.com/singleboard/SRC/to/IMW?hideClock=false&hideMenu=true&showStationName=true", duration: 8000, type: 'live' },
-            { url: "https://donostio.github.io/EvieForcast/", duration: 5000, type: 'status' }, // Pre-loadable
-            { url: "https://donostio.github.io/DL-W-PG-status/", duration: 5000, type: 'status' }, // Pre-loadable
+            { url: "https://donostio.github.io/EvieForcast/", duration: 5000, type: 'status' }, // Pre-loadable (Weather)
+            { url: "https://donostio.github.io/DL-W-PG-status/", duration: 5000, type: 'status' }, // Pre-loadable (Tube Status)
             { url: "https://www.leddepartureboard.com/singleboard/STE/to/WIM?hideClock=false&hideMenu=true&showStationName=true", duration: 8000, type: 'live' }
         ];
 
@@ -85,9 +85,10 @@
         function scheduleNextRotation(duration) {
             clearTimeout(rotationTimer);
             
-            // Immediately start pre-loading the page that will be shown NEXT
-            const nextIndexToPreload = (currentUrlIndex + 1) % urlsToRotate.length;
-            preloadFrame(nextIndexToPreload);
+            // FIX: Calculate the index of the page that is TWO steps away (the page to preload)
+            const preloadIndex = (currentUrlIndex + 1) % urlsToRotate.length;
+
+            preloadFrame(preloadIndex); 
             
             // Set the timer for the actual rotation event
             rotationTimer = setTimeout(performRotation, duration);
@@ -127,7 +128,7 @@
             } else {
                 // --- STATUS BOARD LOGIC (Pre-loaded, ready for instant swap) ---
                 
-                // 1. Perform the swap: Hide the current active, show the pre-loaded
+                // 1. Perform the swap: Hide the current active, show the pre-loaded 
                 activeFrame.classList.remove('active');
                 preloaderFrame.classList.add('active');
                 console.log(`Instantly displaying pre-loaded Status URL: ${nextItem.url}.`);
@@ -137,7 +138,7 @@
                 activeFrame = preloaderFrame;
                 preloaderFrame = tempFrame;
                 
-                // 3. Schedule the next rotation (which also starts pre-loading the next page)
+                // 3. Schedule the next rotation (which also starts pre-loading the *next* page)
                 scheduleNextRotation(nextItem.duration);
             }
             
@@ -183,4 +184,5 @@
     </script>
 </body>
 </html>
+
 
