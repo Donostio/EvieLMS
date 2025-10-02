@@ -157,7 +157,7 @@
                 // FIX: Increased delay from 200ms to 550ms. The CSS opacity transition is 0.5s (500ms).
                 // This delay ensures the frame that just became the 'preloaderFrame' is completely 
                 // transparent before we set its src to the next pre-load URL (Tube Status), eliminating flicker.
-                const transitionDuration = 550; 
+                const transitionDuration = 750; 
                 
                 setTimeout(() => {
                     scheduleNextRotation(nextItem.duration);
