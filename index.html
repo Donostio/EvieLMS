@@ -11,105 +11,176 @@
             overflow: hidden;
             background-color: #000;
         }
-        iframe {
+        /* Define a common class for both iframes */
+        .content-frame {
             border: none;
             width: 100%;
             height: 100%;
-            display: none; /* Hide by default */
+            position: absolute; /* Needed for stacking */
+            top: 0;
+            left: 0;
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.5s ease-in-out; /* Smooth fade transition */
+        }
+        /* Only the active frame is fully visible */
+        .active {
+            opacity: 1;
+            z-index: 10;
         }
     </style>
 </head>
 <body>
-    <iframe id="contentFrame" src="about:blank"
-            allowfullscreen="true"
-            mozallowfullscreen="true"
-            webkitallowfullscreen="true">
-    </iframe>
+    <!-- Two identically sized iframes for swapping content -->
+    <!-- frameA will start as active -->
+    <iframe id="frameA" src="about:blank" class="content-frame active"></iframe>
+    <!-- frameB will start as the preloader (hidden) -->
+    <iframe id="frameB" src="about:blank" class="content-frame"></iframe>
 
     <script>
-        // Array of URLs to rotate, now including custom durations
+        // Array of URLs to rotate, now including a 'type' to distinguish pre-loadable pages
         const urlsToRotate = [
-            { url: "https://www.leddepartureboard.com/singleboard/SRC/to/IMW?hideClock=false&hideMenu=true&showStationName=true", duration: 8000 },
-            { url: "https://donostio.github.io/EvieForcast/", duration: 5000 },
-            { url: "https://donostio.github.io/DL-W-PG-status/", duration: 5000 },
-            { url: "https://www.leddepartureboard.com/singleboard/STE/to/WIM?hideClock=false&hideMenu=true&showStationName=true", duration: 8000 }
+            { url: "https://www.leddepartureboard.com/singleboard/SRC/to/IMW?hideClock=false&hideMenu=true&showStationName=true", duration: 8000, type: 'live' },
+            { url: "https://donostio.github.io/EvieForcast/", duration: 5000, type: 'status' }, // Pre-loadable
+            { url: "https://donostio.github.io/DL-W-PG-status/", duration: 5000, type: 'status' }, // Pre-loadable
+            { url: "https://www.leddepartureboard.com/singleboard/STE/to/WIM?hideClock=false&hideMenu=true&showStationName=true", duration: 8000, type: 'live' }
         ];
 
         const initialDelay = 2000; // 2 seconds before the first URL from the list is loaded
-        const fallbackTimeout = 7000; // 7-second fallback timeout for pages that don't signal ready
+        const fallbackTimeout = 7000; // Fallback timeout for 'live' pages that don't load quickly
 
         let currentUrlIndex = 0;
-        const contentFrame = document.getElementById('contentFrame');
         let rotationTimer;
         let loadTimeout;
-
-        // Function to start or continue the rotation
-        function startRotation() {
-            // Hide the iframe before loading the next page
-            contentFrame.style.display = 'none';
-            contentFrame.src = 'about:blank'; // Reset iframe source
+        
+        const frameA = document.getElementById('frameA');
+        const frameB = document.getElementById('frameB');
+        
+        // Initialize frames. We use the 'active' class to track visibility.
+        let activeFrame = frameA;
+        let preloaderFrame = frameB;
+        
+        /**
+         * Loads a URL into the preloader frame, but only if it's a 'status' page.
+         * For 'live' boards, we clear the preloader since they must load on rotation.
+         * @param {number} indexToLoad - The index of the URL in urlsToRotate to load next.
+         */
+        function preloadFrame(indexToLoad) {
+            const itemToLoad = urlsToRotate[indexToLoad];
             
-            // Get the current item (URL and its duration) from the array
-            const currentItem = urlsToRotate[currentUrlIndex];
-
-            // Load the URL into the iframe
-            contentFrame.src = currentItem.url;
-            console.log(`Loading URL: ${currentItem.url} for ${currentItem.duration / 1000} seconds.`);
-
-            // Clear any existing timeouts to prevent race conditions
-            clearTimeout(loadTimeout);
-            clearTimeout(rotationTimer);
-
-            // Check if the current URL is a live departure board
-            if (currentItem.url.includes('leddepartureboard.com')) {
-                // For live departure boards, assume they don't send a ready signal
-                // and use the onload event as the trigger for the main timer.
-                contentFrame.onload = () => {
-                    contentFrame.style.display = 'block';
-                    console.log("Live board detected. Displaying immediately.");
-                    scheduleNextRotation(currentItem.duration);
-                };
+            // Only pre-load the GitHub Pages status screens
+            if (itemToLoad.type === 'status') {
+                preloaderFrame.src = itemToLoad.url;
+                console.log(`Pre-loading URL ${indexToLoad} (${itemToLoad.url}) in the background.`);
             } else {
-                // For all other URLs, use the fallback timeout.
-                loadTimeout = setTimeout(() => {
-                    console.warn(`Timeout reached for ${currentItem.url}. Forcing next rotation.`);
-                    handlePageReady();
-                }, fallbackTimeout);
+                // Clear the preloader if the next item is a live board
+                preloaderFrame.src = 'about:blank';
             }
         }
         
-        // This function is called when a page is ready or the timeout is reached
-        function handlePageReady() {
-            // Only proceed if the iframe is not yet visible
-            if (contentFrame.style.display !== 'block') {
-                clearTimeout(loadTimeout); // Clear the fallback timeout
-
-                contentFrame.style.display = 'block'; // Show the iframe
-
-                const currentItem = urlsToRotate[currentUrlIndex];
-                scheduleNextRotation(currentItem.duration);
-            }
-        }
-
-        // Schedules the next rotation
+        /**
+         * Schedules the next display swap and starts pre-loading the page after that.
+         * This function is called immediately after a page becomes visible.
+         * @param {number} duration - The amount of time (ms) to display the current page.
+         */
         function scheduleNextRotation(duration) {
-            currentUrlIndex = (currentUrlIndex + 1) % urlsToRotate.length;
-            rotationTimer = setTimeout(startRotation, duration);
+            clearTimeout(rotationTimer);
+            
+            // Immediately start pre-loading the page that will be shown NEXT
+            const nextIndexToPreload = (currentUrlIndex + 1) % urlsToRotate.length;
+            preloadFrame(nextIndexToPreload);
+            
+            // Set the timer for the actual rotation event
+            rotationTimer = setTimeout(performRotation, duration);
         }
 
-        // Listen for messages from the iframed pages
+        /**
+         * Handles the actual swap of frames and subsequent loading/pre-loading.
+         */
+        function performRotation() {
+            clearTimeout(loadTimeout);
+            
+            const nextItem = urlsToRotate[currentUrlIndex];
+            
+            if (nextItem.type === 'live') {
+                // --- LIVE BOARD LOGIC (No pre-loading possible) ---
+                console.log(`Loading Live URL: ${nextItem.url} for ${nextItem.duration / 1000}s.`);
+                
+                // Ensure the current active frame is used for the load
+                activeFrame.src = nextItem.url;
+                
+                // Use onload/timeout for Live boards, then swap the roles back to ensure the preloader is ready for the status pages
+                activeFrame.onload = () => {
+                    activeFrame.classList.add('active'); // Ensure it's visible
+                    activeFrame.onload = null; // Clear handler
+                    scheduleNextRotation(nextItem.duration);
+                };
+
+                // Fallback timeout for live boards
+                loadTimeout = setTimeout(() => {
+                    if (!activeFrame.classList.contains('active')) {
+                        console.warn(`Live board load timeout reached for ${nextItem.url}. Forcing display.`);
+                        activeFrame.classList.add('active');
+                        scheduleNextRotation(nextItem.duration);
+                    }
+                }, fallbackTimeout);
+
+            } else {
+                // --- STATUS BOARD LOGIC (Pre-loaded, ready for instant swap) ---
+                
+                // 1. Perform the swap: Hide the current active, show the pre-loaded
+                activeFrame.classList.remove('active');
+                preloaderFrame.classList.add('active');
+                console.log(`Instantly displaying pre-loaded Status URL: ${nextItem.url}.`);
+
+                // 2. Update frame roles for the next cycle
+                const tempFrame = activeFrame;
+                activeFrame = preloaderFrame;
+                preloaderFrame = tempFrame;
+                
+                // 3. Schedule the next rotation (which also starts pre-loading the next page)
+                scheduleNextRotation(nextItem.duration);
+            }
+            
+            // Advance the index for the next rotation cycle
+            currentUrlIndex = (currentUrlIndex + 1) % urlsToRotate.length;
+        }
+
+        // Listen for messages from the iframed pages.
+        // This is only important for the status pages to confirm data is ready in the preloader.
         window.addEventListener('message', (event) => {
-            // Check if the message is the "page-ready" signal
             if (event.data && event.data.type === 'page-ready') {
-                console.log("Received 'page-ready' signal from a child iframe.");
-                handlePageReady();
+                // Find the frame that sent the message
+                let frameThatSentMessage = null;
+                if (event.source === frameA.contentWindow) {
+                    frameThatSentMessage = frameA;
+                } else if (event.source === frameB.contentWindow) {
+                    frameThatSentMessage = frameB;
+                }
+                
+                if (frameThatSentMessage) {
+                    // Check if the signal came from the frame currently acting as the preloader
+                    if (frameThatSentMessage === preloaderFrame) {
+                        console.log(`Preloader frame confirmed ready for swap: ${preloaderFrame.src}`);
+                    } else if (frameThatSentMessage === activeFrame) {
+                        // This happens if the 'page-ready' signal from the status board is delayed
+                        console.warn(`Ready signal arrived late from active frame: ${activeFrame.src}.`);
+                    }
+                }
             }
         });
+        
+        /**
+         * Initial function to start the rotation process.
+         */
+        function initRotation() {
+             // Start the very first page load (Index 0 is a Live Board, so it loads into the active frame)
+             currentUrlIndex = 0;
+             performRotation(); 
+        }
 
-        // Initial delay before the first URL from the list is loaded
-        setTimeout(() => {
-            startRotation(); // Begin the rotation cycle after the initial delay
-        }, initialDelay);
+        // Start the process after the initial delay
+        setTimeout(initRotation, initialDelay);
     </script>
 </body>
 </html>
+
