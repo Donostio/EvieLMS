@@ -154,12 +154,11 @@
                 
                 // 3. Schedule the next rotation (which advances the index and pre-loads the *following* page)
                 
-                // FIX: Add a short delay (e.g., 50ms) before pre-loading the next URL 
-                // into the newly hidden frame. This prevents the browser from briefly 
-                // displaying the new content during the frame swap/hide operation.
+                // FIX: Increased delay from 50ms to 200ms to ensure the browser has fully hidden 
+                // the old frame's content before loading the new pre-load URL into it.
                 setTimeout(() => {
                     scheduleNextRotation(nextItem.duration);
-                }, 50); 
+                }, 200); 
             }
         }
 
@@ -198,6 +197,7 @@
     </script>
 </body>
 </html>
+
 
 
 
